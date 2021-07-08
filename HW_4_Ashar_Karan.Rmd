@@ -1,0 +1,130 @@
+---
+title: "Homework 4"
+author: "Karan Ashar"
+date: "3/9/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(cluster)
+library(factoextra)
+library(gridExtra)
+library(dendextend) 
+```
+
+
+
+
+##Data Preprocessing
+
+An input dataframe was created, this represented the disputed papers.
+The data was scaled as well. This is important because this can affect our algorithms performance.
+For the first two tasks i.e to cluster the disputed papers using HAC and K-Means I removed the rows with author 'Jay' and 'HM'. They were not required for our task.
+```{r}
+setwd("C:/Users/karan/Desktop/IST707/data")
+data<-read.csv(file ='HW4-data-fedPapers85.csv')
+
+input=data[data$author=='dispt',]
+
+temp=data[data$author!= 'Jay',]
+temp=temp[temp$author!='dispt',]
+filtered_data=temp[temp$author!='HM',]
+
+nrow(filtered_data)
+#str(filtered_data)
+
+#to_test
+actual_labels<-filtered_data$author
+#actual_labels
+filtered_data$author<-NULL
+filtered_data$filename<-NULL
+
+#Preparing input data 
+input_file_names=input$filename
+input$author<-NULL
+input$filename<-NULL
+
+
+to_test<-rbind(input,filtered_data)
+to_test<-data.frame(scale(to_test))
+filtered_data<-to_test[-c(1:11),]
+
+```
+
+##HAC
+
+First thing I did was to carry out hierarchial clustering. To find our answers to the disputed papers. I tried a few algorithms and various methods. I found this one to be the best. I set k ('Number of clusters') = 2. This is because we had two choices Madison or Hamilton.
+Below we see that all are disputed papers which have a label of 1 to 11 belong to Madison's cluster.
+We can also say this because the cluster with lesser number of observations belongs to Madison and the disputed papers are being clustered with the cluster with lesser number of observations.
+```{r}
+#HAC 
+hc3 <- agnes(to_test, method = "ward")
+cluster_label <- cutree(hc3, k = 2)
+
+
+fviz_cluster(list(data = filtered_data, cluster = actual_labels))ggtitle('Actual Labels')
+
+fviz_cluster(list(data = to_test, cluster = cluster_label))+ ggtitle('HAC Predicted')
+
+table(head(cluster_label,11))
+```
+
+## K-Means
+Next I tried the K-means algorithm with two clusters as well. I got the same results as before. The first 11 rows i.e the disputed ones belong to Madison. We can view the same using the plot and the label numbers.
+```{r}
+#K-means
+
+model_r = kmeans(to_test, centers = 2, nstart = 25)
+
+fviz_cluster(model_r, data = to_test) + ggtitle('K-Means to find - Disputed papers')
+head(model_r$cluster,11)
+```
+
+## Identify important attributes 
+Below we can see the important words helping us to cluster.
+```{r}
+df<-data.frame(cbind(model_r$centers[1,],model_r$centers[2,]))
+colnames(df)<-c('one','two')
+df$abs_distance<-abs(df$one-df$two)
+rownames(head(df[order(-df$abs_distance),],10))
+```
+
+
+## Which side to the joint authorship papers go?
+For this question I kept only the rows containing Madison, HM and Hamilton and made 2 clusters. This would help us identify which way did the joint authorship papers go.
+First I plotted a visualization on where the 3 were located before clustering.
+Then I carried out k-means clustering after removing the 'author' variable.
+Note : The HM papers had a label of '63','64','65'.
+We notice that the HM papers got clustered with the Maddison's papers.
+```{r}
+temp=data[data$author!='Jay',]
+temp=temp[temp$author!='dispt',]
+hm=temp[temp$author=='HM',]
+temp$filename<-NULL
+actual_lables_part3<-temp$author
+temp$author<-NULL
+scaled_temp<-data.frame(scale(temp))
+model_r = kmeans(scaled_temp, centers = 2, nstart = 25)
+
+
+fviz_cluster(list(data = temp, cluster = actual_lables_part3)) +ggtitle('Actual Labels')
+fviz_cluster(model_r, data = scaled_temp) + ggtitle('Predicted Clusters')
+
+#Labels representing HM.
+rownames(hm)
+
+```
+
+## Conclusion
+I can conclude based on my experiments that all the 'disputed' belonged to Madison and not Hamilton. Also we can see a strong input of Madison in the joint authorship papers as well. 
+```{r}
+```
+
+
+```{r}
+```
+

@@ -1,0 +1,200 @@
+---
+title: "Homework 5"
+author: "Karan Ashar"
+date: "3/16/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading required libraries
+```{r}
+library(dplyr)
+library(rpart.plot)
+library(rpart)
+library(splitTools)
+library(ranger)
+library(tidyverse)
+library(caret)
+set.seed(102)
+```
+
+## Loading data and pre-processing steps
+After we load the data we will create a dataset call test_disputed. This will contain all the papers which are marked as 'disputed'. At the end we have to finally use our model to predict these papers.
+To train our model we then filter out the papers which belong to 'Hamilton' and 'Madison' and call it filtered_data.
+
+```{r}
+data<-read.csv(file ='HW4-data-fedPapers85.csv')
+
+test_disputed=data[data$author=='dispt',]
+test_disputed_file_name=test_disputed$filename
+test_disputed$filename<-NULL
+
+filtered_data=data[data$author=='Hamilton' | data$author=='Madison',]
+filtered_data_file_name=filtered_data$filename
+filtered_data$filename<-NULL
+
+```
+
+
+## Validation Set Approach
+The first approach which we are going to use is Validation set approach. In this we split our training data into two parts - train and test. While splitting the data up we need to ensure that the target variable, in our case it is 'author' maintains it's distribution. In other words, the ratio of occurrences of 'Madison' to 'Hamilton' remain similar across our train as well as our test split with respect to our original dataset.
+
+So to summarize:
+train - It contains the data which we will train our model on.
+test - We will validate our model on this data to see it's performace. This is the data the model will not see while training.
+train_disputed - This dataset contains the data of the 'disputed' papers.
+```{r}
+#Breaking down into train and validation set.
+inds <- partition(filtered_data$author, p = c(train = 0.80, test = 0.20))
+
+train<-filtered_data[inds$train,]
+test<-filtered_data[inds$test,]
+print('Training Data distribution')
+table(train$author)
+
+print('Testing Data distribution')
+table(test$author)
+
+```
+Note:-
+Interpreting the Trees in this report.
+The label on the node indicates the class output for the observation if it ended on that node.
+The number's below it indicate the miss-classified instances in that node while training.
+So something like 0/41 tells us that out of 41 observations 0 were miss-classified.
+
+
+Base Model:
+Our model performs perfectly on the training data which can be observed from the Tree visualization
+On the test data we get 1 miss-classification.
+On the disputed dataset, it classifies all papers as 'Madison'.
+```{r}
+fit <- rpart(author~., data = train, method = 'class')
+rpart.plot(fit,extra=3)
+
+predict_unseen <-predict(fit, test[,c(-1)], type = 'class')
+
+print('Lets see our performance on the test set that we created')
+confusionMatrix(table(test$author,predict_unseen))
+
+print('Prediction on disputed dataset')
+table(predict(fit,test_disputed[,c(-1)],type='class'))
+```
+
+
+Changing parameters manually.
+```{r}
+fit <- rpart(author~., data = train, method = 'class', 
+             minbucket =2,parms = list(split = 'information'),maxdepth= 5)
+rpart.plot(fit,extra=3)
+```
+
+Prediction on the validation set.
+It does pretty good. It's the same performance as the base model.
+```{r}
+predict_unseen <-predict(fit, test[,c(-1)], type = 'class')
+confusionMatrix(table(test$author,predict_unseen))
+
+```
+
+Prediction on the on data with disputed papers.
+```{r}
+table(predict(fit,test_disputed[,c(-1)],type='class'))
+```
+
+The model we are going to use is the 'rpart' model. Let's look at its various hyperparameters.
+```{r}
+modelLookup('rpart')
+```
+
+
+## K-fold cross validaiton approach
+The problem with our previous approach is that the random split that we did, could give us different answers for a split that we did everytime. The model that we just ran could perform different on another split. We could be lucky in our first split. This is not a right way to conclude results. So the K-fold cross validation approach solves this problem. Here the K we have selected is '10'. This means the dataset will be divided into 10 parts where each of the 9 parts would be used for training and the last part would be used for testing.  
+Here we also try different values for our hyperparameter 'cp'. This process would also tell us the best value for 'cp' as well. This is done by the tuneLength parameter in the train function. in our case it is equal to 30. So, 30 values for 'cp' will be tried.
+We use the metric 'ROC' to determine the best model.
+```{r}
+train_control <- trainControl(method = "cv", 
+                              number = 10,
+                              summaryFunction = twoClassSummary,
+                              classProbs = TRUE)
+model <- train(author~.,data=filtered_data,  
+               method = "rpart", 
+               trControl = train_control,
+               tuneLength=30,
+               metric = "ROC"
+               )
+print(model)
+plot(model, scales = list(x = list(log = 10)))
+
+```
+We can observe the best ROC metric to be 0.94 for 'cp'=0.9011494.
+
+Lets visualize the best model via a tree structure.
+We observe that during training one example is miss-classified.
+```{r}
+rpart.plot(model$finalModel,extra=3)
+```
+
+
+Prediction on the disputed papers
+All the disputed papers are classified as 'Madison'.
+```{r}
+table(predict(model,test_disputed[,c(-1)]))
+```
+
+Lets take a look at the joint authorship papers
+Here we can see all the joint authorship papers are also classified as 'Madison'
+This result is similar to our Clustering task as well
+```{r}
+predict(fit,data[data$author=='HM',][,c(-1,-2)])
+```
+
+
+## Another experiment 
+I thought we should try the cross-validation process without the word 'upon' and see if our model performs better. This is because I see this feature being really strong and wanted to observe the results without it.
+
+```{r}
+filtered_data$upon<-NULL
+test_disputed$upon<-NULL
+
+train_control <- trainControl(method = "cv", 
+                              number = 10,
+                              summaryFunction = twoClassSummary,
+                              classProbs = TRUE)
+
+
+
+model <- train(author~.,data=filtered_data,  
+               method = "rpart", 
+               trControl = train_control,
+               tuneLength=30,
+               metric = "ROC"
+)
+print(model)
+
+plot(model, scales = list(x = list(log = 10)))
+
+#table(test$author,predict(model,test))
+rpart.plot(model$finalModel,extra=3)
+
+
+table(predict(model,test_disputed[,c(-1)]))
+
+```
+
+We observe the best ROC metric reach 0.82. This is less than what we had got earlier. Also on the disputed dataset we observe changes. We can say it would be better if we preserved the feature word 'upon'.
+
+
+
+We can observe that the classification task produces similar results as the clustering task.
+We take the model created with the K-fold validation approach to be our primary model along the value of 'cp' we found. We will also use the word 'upon' as one of our features. We can say it is an important feature to classify the papers written by 'Hamilton' and 'Madison'.
+
+
+
+
+
+
+
+
